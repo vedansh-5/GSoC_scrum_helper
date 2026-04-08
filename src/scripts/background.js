@@ -30,7 +30,11 @@ browser.storage.local.get({ displayMode: 'sidePanel' }).then((result) => {
 // Listen for changes to displayMode
 browser.storage.onChanged.addListener((changes, area) => {
 	if (area === 'local' && changes.displayMode) {
-		applyDisplayMode(changes.displayMode.newValue);
+		// Do not apply popup mode immediately to prevent side panel from getting stuck open.
+		// It will be applied when the panel is closed or on next launch.
+		if (changes.displayMode.newValue === 'sidePanel') {
+			applyDisplayMode('sidePanel');
+		}
 	}
 });
 
@@ -60,6 +64,13 @@ browser.action.onClicked.addListener((tab) => {
 				});
 			}
 			openByTabId.set(tabId, false);
+
+			// Apply popup mode now if it was selected while the side panel was open
+			browser.storage.local.get({ displayMode: 'sidePanel' }).then((result) => {
+				if (result.displayMode === 'popup') {
+					applyDisplayMode('popup');
+				}
+			});
 			return;
 		}
 
@@ -74,6 +85,13 @@ browser.action.onClicked.addListener((tab) => {
 			.open({ tabId })
 			.then(() => openByTabId.set(tabId, true))
 			.catch((error) => {
+				// If opening fails because it's already open, assume state might have been stale
+				if (error.message && error.message.includes('already open')) {
+					openByTabId.set(tabId, true);
+					browser.sidePanel.close({ tabId }).catch(() => {});
+					openByTabId.set(tabId, false);
+					return;
+				}
 				openByTabId.set(tabId, false);
 				console.error('Failed to open side panel:', error);
 			});
